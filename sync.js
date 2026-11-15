@@ -62,6 +62,14 @@ window.SYNC = (function () {
     };
   }
 
+  function mapSolicitud(x) {
+    return {
+      id: x.id, creado_ts: x.creado_ts, requisitor: x.requisitor, area: x.area, hora_req_ts: x.hora_req_ts,
+      personas: x.personas, destino: x.destino, motivo: x.motivo, estado: x.estado, unidad_id: x.unidad_id,
+      chofer: x.chofer, actualizado_ts: x.actualizado_ts, dispositivo: x.dispositivo
+    };
+  }
+
   // Envía todo lo pendiente. Devuelve {ok, enviados, error}
   function push() {
     if (!enabled()) return Promise.resolve({ ok: false, enviados: 0, error: "sin_config" });
@@ -94,22 +102,33 @@ window.SYNC = (function () {
             });
           });
         }, Promise.resolve());
+      }).then(function () { return DB.all("solicitudes"); }).then(function (sols) {
+        var pend = sols.filter(function (x) { return !x.synced; });
+        return pend.reduce(function (p, x) {
+          return p.then(function () {
+            return sb.from("solicitudes").upsert(mapSolicitud(x)).then(function (r) {
+              if (r.error) throw r.error;
+              x.synced = true; enviados++; return DB.put("solicitudes", x);
+            });
+          });
+        }, Promise.resolve());
       }).then(function () { return { ok: true, enviados: enviados }; })
         .catch(function (e) { return { ok: false, enviados: enviados, error: String(e.message || e) }; });
     });
   }
 
-  // Trae viajes y cargas de todos los choferes (para el dashboard).
+  // Trae viajes, cargas y solicitudes de todos los choferes (para el dashboard).
   function pull() {
     if (!enabled()) return Promise.resolve(null);
     return loadClient().then(function (sb) {
       if (!sb) return null;
       return Promise.all([
         sb.from("viajes").select("*").order("salida_ts", { ascending: false }).limit(2000),
-        sb.from("cargas").select("*").order("ts", { ascending: false }).limit(2000)
+        sb.from("cargas").select("*").order("ts", { ascending: false }).limit(2000),
+        sb.from("solicitudes").select("*").order("hora_req_ts", { ascending: false }).limit(2000)
       ]).then(function (rs) {
         if (rs[0].error || rs[1].error) return null;
-        return { viajes: rs[0].data, cargas: rs[1].data };
+        return { viajes: rs[0].data, cargas: rs[1].data, solicitudes: rs[2].error ? [] : rs[2].data };
       });
     });
   }

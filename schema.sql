@@ -16,14 +16,26 @@ create table if not exists cargas (
   foto_ticket_url text, lat double precision, lng double precision,
   creado_en timestamptz default now()
 );
+create table if not exists solicitudes (
+  id text primary key,
+  creado_ts bigint, requisitor text, area text,
+  hora_req_ts bigint, personas int check (personas > 0),
+  destino text, motivo text,
+  estado text check (estado in ('pendiente','asignada','atendida','cancelada')),
+  unidad_id text, chofer text, actualizado_ts bigint, dispositivo text,
+  creado_en timestamptz default now()
+);
+create index if not exists solicitudes_hora_idx on solicitudes (hora_req_ts desc);
 create index if not exists viajes_salida_idx on viajes (salida_ts desc);
 create index if not exists cargas_ts_idx on cargas (ts desc);
 
 -- Piloto: acceso con la llave anon (sin login de choferes). Endurecer en fase 2 con auth por chofer.
 alter table viajes enable row level security;
 alter table cargas enable row level security;
+alter table solicitudes enable row level security;
 create policy "piloto_viajes" on viajes for all to anon using (true) with check (true);
 create policy "piloto_cargas" on cargas for all to anon using (true) with check (true);
+create policy "piloto_solicitudes" on solicitudes for all to anon using (true) with check (true);
 
 -- Storage: crear bucket público "evidencias" desde el panel (Storage > New bucket > Public).
 

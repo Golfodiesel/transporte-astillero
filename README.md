@@ -32,6 +32,16 @@ Opción B — Vercel o Netlify (gratis): arrastrar la carpeta o conectar el repo
 4. **Combustible**: litros, importe, odómetro, foto del ticket.
 5. **Historial**: ver registros y, en modo local, **Compartir datos (JSON)** por WhatsApp al supervisor.
 
+## Viajes extraordinarios (fuera del movimiento normal)
+Pestaña **Extra**. El requisitor captura:
+- **Nombre** (se recuerda en ese celular) y área (opcional).
+- **Fecha y hora requerida** (sugiere +1 h; no acepta horas ya pasadas).
+- **Cantidad de personas** (avisa si supera la capacidad de una unidad).
+- **Destino**: Pueblo Viejo o Tampico (editable en `catalogo.js` → `destinos_extra`).
+- Motivo u observaciones (opcional).
+
+La solicitud queda **Pendiente**. En **Supervisor → Viajes extraordinarios** se ve primero lo pendiente, ordenado por hora, y se marca **Asignar** (unidad y chofer), **Atendida** o **Cancelar**. Se exporta a CSV. En modo local viaja en el JSON compartido; con Supabase se sincroniza (tabla `solicitudes` en `schema.sql`).
+
 ## Supervisor
 Pestaña **Supervisor** → PIN (`config.js`). Indicadores: puntualidad, ocupación, km, km/L, costo por pasajero; tablas y exportación a CSV (abre en Excel). En modo local puede importar los JSON que comparten los choferes.
 

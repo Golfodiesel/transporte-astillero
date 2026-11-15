@@ -1,7 +1,7 @@
 // Almacenamiento local (IndexedDB) con API de promesas.
-// Stores: viajes, cargas, fotos, config
+// Stores: viajes, cargas, fotos, config, solicitudes
 window.DB = (function () {
-  var NAME = "transporte_astillero", VERSION = 1, dbp = null;
+  var NAME = "transporte_astillero", VERSION = 2, dbp = null;
 
   function open() {
     if (dbp) return dbp;
@@ -9,7 +9,7 @@ window.DB = (function () {
       var req = indexedDB.open(NAME, VERSION);
       req.onupgradeneeded = function (e) {
         var d = e.target.result;
-        ["viajes", "cargas", "fotos", "config"].forEach(function (s) {
+        ["viajes", "cargas", "fotos", "config", "solicitudes"].forEach(function (s) {
           if (!d.objectStoreNames.contains(s)) d.createObjectStore(s, { keyPath: "id" });
         });
       };

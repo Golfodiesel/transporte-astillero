@@ -12,5 +12,7 @@ window.CATALOGO = {
     { id: "R1", nombre: "R1 · Puerto → Astillero", paradas: ["Parada 1", "Parada 2", "Parada 3", "Parada 4"] },
     { id: "R2", nombre: "R2 · Centro → Astillero", paradas: ["Plaza Centro", "Col. Obrera", "Gasolinera Norte", "Puente Viejo"] }
   ],
-  estaciones: ["Estación convenio", "Otra"]
+  estaciones: ["Estación convenio", "Otra"],
+  // Destinos para viajes extraordinarios (fuera del movimiento normal)
+  destinos_extra: ["Pueblo Viejo", "Tampico"]
 };

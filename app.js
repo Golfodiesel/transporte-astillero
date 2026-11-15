@@ -91,11 +91,11 @@
     if (state.viaje && (h === "inicio")) h = "viaje";
     if (!state.viaje && (h === "viaje" || h === "llegada")) h = "inicio";
     state.view = h;
-    var views = { inicio: vInicio, viaje: vViaje, llegada: vLlegada, combustible: vCombustible, historial: vHistorial, supervisor: vSupervisor };
+    var views = { inicio: vInicio, viaje: vViaje, llegada: vLlegada, combustible: vCombustible, solicitud: vSolicitud, historial: vHistorial, supervisor: vSupervisor };
     (views[h] || vInicio)();
   }
   function navBar(cur) {
-    var items = [["viaje", "Viaje"], ["combustible", "Combustible"], ["historial", "Historial"], ["supervisor", "Supervisor"]];
+    var items = [["viaje", "Viaje"], ["combustible", "Combustible"], ["solicitud", "Extra"], ["historial", "Historial"], ["supervisor", "Supervisor"]];
     return '<div class="tabs">' + items.map(function (i) {
       var k = i[0] === "viaje" && !state.viaje ? "inicio" : i[0];
       return '<button class="btn' + ((cur === i[0] || (i[0] === "viaje" && cur === "inicio")) ? " sel" : "") + '" data-nav="' + k + '">' + i[1] + '</button>';
@@ -258,11 +258,61 @@
     };
   }
 
+  /* ---------- VISTA: solicitud de viaje extraordinario ---------- */
+  var ESTADOS_SOL = { pendiente: ["Pendiente", "late"], asignada: ["Asignada", "run"], atendida: ["Atendida", "ok"], cancelada: ["Cancelada", "gris"] };
+  function pillSol(e) { var x = ESTADOS_SOL[e] || [e, "gris"]; return '<span class="pill ' + x[1] + '">' + esc(x[0]) + '</span>'; }
+  function aLocalInput(ts) { var d = new Date(ts - new Date(ts).getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); }
+  function vSolicitud() {
+    var p = state.prefs || {}, destinos = C.destinos_extra || ["Pueblo Viejo", "Tampico"];
+    var sugerida = Math.ceil((Date.now() + 3600000) / 900000) * 900000; // +1 h, redondeado a 15 min
+    $app.innerHTML = hdr("Fuera del movimiento normal", "Viaje extraordinario", fmtFecha(Date.now()) + " · " + fmtHora(Date.now())) +
+      '<div class="main">' + navBar("solicitud") +
+      '<div><label for="req">Requisitor (nombre)</label><input id="req" value="' + esc(p.requisitor || "") + '" placeholder="Nombre de quien solicita" autocomplete="name"></div>' +
+      '<div><label for="area">Área / departamento (opcional)</label><input id="area" value="' + esc(p.requisitor_area || "") + '" placeholder="Ej. Producción"></div>' +
+      '<div><label for="hreq">Fecha y hora requerida</label><input id="hreq" type="datetime-local" value="' + aLocalInput(sugerida) + '"></div>' +
+      '<div><span class="lbl">Cantidad de personas</span><div class="counter"><button class="btn sq" id="smenos" aria-label="Menos">−</button><div class="n" id="scnt">1</div><button class="btn sq" id="smas" aria-label="Más">+</button></div></div>' +
+      '<div><span class="lbl">Destino</span><div class="grp">' + destinos.map(function (d, i) { return '<button class="btn' + (i === 0 ? " sel" : "") + '" data-dest="' + esc(d) + '">' + esc(d) + '</button>'; }).join("") + '</div></div>' +
+      '<div><label for="motivo">Motivo / observaciones (opcional)</label><textarea id="motivo" placeholder="Ej. salida por tiempo extra, punto de recogida"></textarea></div>' +
+      '<div id="missol"></div>' +
+      '</div><div class="foot"><button class="btn pri xl" id="enviarSol">Registrar solicitud</button></div>';
+    var n = 1, dest = destinos[0];
+    $app.querySelectorAll("[data-nav]").forEach(function (b) { b.onclick = function () { nav(b.dataset.nav); }; });
+    document.getElementById("smas").onclick = function () { n = Math.min(99, n + 1); document.getElementById("scnt").textContent = n; };
+    document.getElementById("smenos").onclick = function () { n = Math.max(1, n - 1); document.getElementById("scnt").textContent = n; };
+    document.getElementById("scnt").onclick = function () { var v = window.prompt("Cantidad de personas", n); if (v == null) return; var k = parseInt(v, 10); if (k > 0 && k < 1000) { n = k; this.textContent = n; } };
+    $app.querySelectorAll("[data-dest]").forEach(function (b) { b.onclick = function () { dest = b.dataset.dest; $app.querySelectorAll("[data-dest]").forEach(function (x) { x.classList.toggle("sel", x === b); }); }; });
+    DB.all("solicitudes").then(function (ss) {
+      ss.sort(function (a, b) { return b.creado_ts - a.creado_ts; });
+      var el = document.getElementById("missol"); if (!el || !ss.length) return;
+      el.innerHTML = '<span class="lbl">Solicitudes registradas en este celular</span>' + ss.slice(0, 15).map(function (x) {
+        return '<div class="card"><div class="stop"><div class="t"><b>' + fmtFecha(x.hora_req_ts) + " " + fmtHora(x.hora_req_ts) + " · " + esc(x.destino) + " · " + x.personas + ' pers.</b><span>' + esc(x.requisitor) + (x.unidad_id ? " · " + esc(x.unidad_id) : "") + (x.synced ? " · enviada" : "") + '</span></div>' + pillSol(x.estado) + '</div></div>';
+      }).join("");
+    });
+    document.getElementById("enviarSol").onclick = function () {
+      var req = document.getElementById("req").value.trim(), area = document.getElementById("area").value.trim();
+      var hv = document.getElementById("hreq").value, hts = hv ? new Date(hv).getTime() : NaN;
+      if (!req) { toast("Captura el nombre del requisitor", true); return; }
+      if (isNaN(hts)) { toast("Captura la fecha y hora requerida", true); return; }
+      if (hts < Date.now() - 15 * 60000) { toast("La hora requerida ya pasó", true); return; }
+      var maxCap = Math.max.apply(null, C.unidades.map(function (u) { return u.capacidad || 0; }));
+      if (maxCap && n > maxCap && !window.confirm(n + " personas superan la capacidad de una unidad (" + maxCap + "). ¿Registrar de todos modos?")) return;
+      var btn = this; btn.disabled = true;
+      var s = { id: DB.uid(), creado_ts: Date.now(), requisitor: req, area: area || null, hora_req_ts: hts, personas: n, destino: dest,
+        motivo: document.getElementById("motivo").value.trim() || null, estado: "pendiente", unidad_id: null, chofer: null, actualizado_ts: Date.now(), dispositivo: dispositivo(), synced: false };
+      var np = Object.assign({}, state.prefs || {}, { requisitor: req, requisitor_area: area });
+      guardarPrefs(np).then(function () { return DB.put("solicitudes", s); }).then(function () {
+        toast("Solicitud registrada: " + dest + " · " + fmtHora(hts) + " · " + n + " pers.");
+        SYNC.push(); render();
+      });
+    };
+  }
+
   /* ---------- VISTA: historial del chofer ---------- */
   function vHistorial() {
-    Promise.all([DB.all("viajes"), DB.all("cargas")]).then(function (r) {
+    Promise.all([DB.all("viajes"), DB.all("cargas"), DB.all("solicitudes")]).then(function (r) {
+      var solicitudes = r[2];
       var viajes = r[0].sort(function (a, b) { return b.salida_ts - a.salida_ts; }), cargas = r[1].sort(function (a, b) { return b.ts - a.ts; });
-      var pend = viajes.filter(function (v) { return v.estado === "cerrado" && !v.synced; }).length + cargas.filter(function (c) { return !c.synced; }).length;
+      var pend = viajes.filter(function (v) { return v.estado === "cerrado" && !v.synced; }).length + cargas.filter(function (c) { return !c.synced; }).length + solicitudes.filter(function (x) { return !x.synced; }).length;
       var modo = SYNC.enabled() ? (pend ? '<span class="badge amb">' + pend + ' sin enviar</span>' : '<span class="badge">Sincronizado</span>') : '<span class="badge gris">Modo local</span>';
       var html = hdr("Historial", "Mis registros", viajes.length + " viajes · " + cargas.length + " cargas", modo) + '<div class="main">' + navBar("historial") +
         '<div class="grp">' + (SYNC.enabled() ? '<button class="btn pri" id="sync">Enviar ahora</button>' : "") + '<button class="btn" id="compartir">Compartir datos (JSON)</button></div>';
@@ -276,7 +326,7 @@
       $app.querySelectorAll("[data-nav]").forEach(function (b) { b.onclick = function () { nav(b.dataset.nav); }; });
       var s = document.getElementById("sync"); if (s) s.onclick = function () { s.disabled = true; SYNC.push().then(function (res) { toast(res.ok ? "Enviados: " + res.enviados : "Error: " + res.error, !res.ok); render(); }); };
       document.getElementById("compartir").onclick = function () {
-        var data = JSON.stringify({ exportado: new Date().toISOString(), viajes: viajes, cargas: cargas });
+        var data = JSON.stringify({ exportado: new Date().toISOString(), viajes: viajes, cargas: cargas, solicitudes: solicitudes });
         var blob = new Blob([data], { type: "application/json" }), name = "transporte_" + new Date().toISOString().slice(0, 10) + ".json";
         var file = new File([blob], name, { type: "application/json" });
         if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) { navigator.share({ files: [file], title: "Datos de transporte" }).catch(function () {}); }
@@ -293,13 +343,15 @@
       document.getElementById("entrar").onclick = function () { if (document.getElementById("pin").value === CFG.PIN_SUPERVISOR) { state.supervisorOk = true; render(); } else toast("PIN incorrecto", true); };
       return;
     }
-    Promise.all([DB.all("viajes"), DB.all("cargas"), state.remoto ? Promise.resolve(state.remoto) : SYNC.pull()]).then(function (r) {
-      var viajes = r[0], cargas = r[1], remoto = r[2];
+    Promise.all([DB.all("viajes"), DB.all("cargas"), state.remoto ? Promise.resolve(state.remoto) : SYNC.pull(), DB.all("solicitudes")]).then(function (r) {
+      var viajes = r[0], cargas = r[1], remoto = r[2], sols = r[3];
+      if (remoto && remoto.solicitudes) { var sid = {}; sols.forEach(function (x) { sid[x.id] = x; }); remoto.solicitudes.forEach(function (x) { var l = sid[x.id]; if (!l) sols.push(x); else if ((x.actualizado_ts || 0) > (l.actualizado_ts || 0)) sols[sols.indexOf(l)] = x; }); }
       if (remoto) { state.remoto = remoto; var ids = {}; viajes.forEach(function (v) { ids[v.id] = 1; }); remoto.viajes.forEach(function (v) { if (!ids[v.id]) viajes.push(v); }); var cid = {}; cargas.forEach(function (c) { cid[c.id] = 1; }); remoto.cargas.forEach(function (c) { if (!cid[c.id]) cargas.push(c); }); }
       var dias = state.periodo === "todo" ? 36500 : parseInt(state.periodo, 10), desde = Date.now() - dias * 86400000;
       if (state.periodo === "hoy") { var d0 = new Date(); d0.setHours(0, 0, 0, 0); desde = d0.getTime(); }
       var V = viajes.filter(function (v) { return v.estado === "cerrado" && v.salida_ts >= desde; }).sort(function (a, b) { return b.salida_ts - a.salida_ts; });
       var K = cargas.filter(function (c) { return c.ts >= desde; });
+      var SP = sols.filter(function (x) { return x.estado === "pendiente" || x.estado === "asignada" || x.hora_req_ts >= desde; }).sort(function (a, b) { var pa = a.estado === "pendiente" ? 0 : 1, pb = b.estado === "pendiente" ? 0 : 1; return pa - pb || a.hora_req_ts - b.hora_req_ts; });
       var n = V.length, aTiempo = V.filter(function (v) { var r = retrasoMin(v); return r != null && r <= CFG.TOLERANCIA_MIN; }).length;
       var pax = V.reduce(function (s, v) { return s + (v.pax_total || 0); }, 0), cap = V.reduce(function (s, v) { return s + (v.capacidad || 0); }, 0);
       var km = V.reduce(function (s, v) { return s + kmViaje(v); }, 0), litros = K.reduce(function (s, c) { return s + (c.litros || 0); }, 0), gasto = K.reduce(function (s, c) { return s + (c.importe || 0); }, 0);
@@ -321,6 +373,13 @@
         (V.length ? V.slice(0, 200).map(function (v) { var r = retrasoMin(v); return '<tr><td>' + fmtFecha(v.salida_ts) + '</td><td><b>' + esc(v.unidad_id) + '</b></td><td>' + esc(v.chofer) + '</td><td>' + esc(v.ruta_id) + " · " + esc(v.turno) + '</td><td>' + fmtHora(v.salida_ts) + '</td><td>' + fmtHora(v.llegada_ts) + '</td><td>' + v.pax_total + "/" + v.capacidad + '</td><td>' + fmtNum(kmViaje(v)) + '</td><td>' + (r == null ? "—" : (r <= CFG.TOLERANCIA_MIN ? '<span class="pill ok">A tiempo</span>' : '<span class="pill late">+' + r + ' min</span>')) + (v.incidencias && v.incidencias.length ? ' <span class="pill late">' + v.incidencias.length + ' inc.</span>' : "") + '</td></tr>'; }).join("") : '<tr><td colspan="9" class="muted">Sin viajes cerrados en el periodo</td></tr>') + '</tbody></table></div></div>' +
         '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3 style="margin:0">Cargas de combustible</h3><button class="link" id="csvC">Exportar CSV</button></div><div class="scroll"><table><thead><tr><th>Fecha</th><th>Unidad</th><th>Chofer</th><th>Litros</th><th>Importe</th><th>$/L</th><th>Odómetro</th><th>Estación</th></tr></thead><tbody>' +
         (K.length ? K.sort(function (a, b) { return b.ts - a.ts; }).map(function (c) { return '<tr><td>' + fmtFecha(c.ts) + " " + fmtHora(c.ts) + '</td><td><b>' + esc(c.unidad_id) + '</b></td><td>' + esc(c.chofer) + '</td><td>' + fmtNum(c.litros, 1) + '</td><td>' + fmtMXN(c.importe) + '</td><td>' + fmtMXN(c.importe / c.litros) + '</td><td>' + fmtNum(c.odo, 0) + '</td><td>' + esc(c.estacion) + '</td></tr>'; }).join("") : '<tr><td colspan="8" class="muted">Sin cargas en el periodo</td></tr>') + '</tbody></table></div></div>' +
+        '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px"><h3 style="margin:0">Viajes extraordinarios</h3><button class="link" id="csvS">Exportar CSV</button></div>' +
+        (SP.length ? '<div class="small" style="margin-bottom:8px"><b>' + SP.filter(function (x) { return x.estado === "pendiente"; }).length + '</b> pendiente(s) por atender</div>' : "") +
+        '<div class="scroll"><table><thead><tr><th>Hora requerida</th><th>Destino</th><th>Pers.</th><th>Estado</th><th>Acción</th><th>Requisitor</th><th>Motivo</th><th>Unidad</th></tr></thead><tbody>' +
+        (SP.length ? SP.map(function (x) { return '<tr><td><b>' + fmtFecha(x.hora_req_ts) + " " + fmtHora(x.hora_req_ts) + '</b></td><td>' + esc(x.destino) + '</td><td>' + x.personas + '</td><td>' + pillSol(x.estado) + '</td><td>' +
+          (x.estado === "pendiente" ? '<button class="link" data-sol="' + esc(x.id) + '" data-acc="asignar">Asignar</button> · ' : "") +
+          (x.estado === "pendiente" || x.estado === "asignada" ? '<button class="link" data-sol="' + esc(x.id) + '" data-acc="atendida">Atendida</button> · <button class="link" data-sol="' + esc(x.id) + '" data-acc="cancelada">Cancelar</button>' : "—") +
+          '</td><td>' + esc(x.requisitor) + (x.area ? '<div class="small">' + esc(x.area) + '</div>' : "") + '</td><td>' + esc(x.motivo || "—") + '</td><td>' + esc(x.unidad_id || "—") + (x.chofer ? '<div class="small">' + esc(x.chofer) + '</div>' : "") + '</td></tr>'; }).join("") : '<tr><td colspan="8" class="muted">Sin solicitudes en el periodo</td></tr>') + '</tbody></table></div></div>' +
         '<div class="card"><h3>Importar datos de otro celular (JSON)</h3><div class="small" style="margin-bottom:8px">Útil en modo local: el chofer comparte su archivo y aquí se consolida.</div><input type="file" accept="application/json,.json" id="imp" style="height:auto;padding:10px"></div>' +
         '<button class="link" id="salir">Cerrar sesión de supervisor</button></div>';
       $app.innerHTML = html;
@@ -329,9 +388,23 @@
       document.getElementById("salir").onclick = function () { state.supervisorOk = false; nav("inicio"); };
       document.getElementById("csvV").onclick = function () { descargarCSV("viajes", ["id", "fecha", "unidad", "chofer", "ruta", "turno", "salida", "llegada", "retraso_min", "pasajeros", "capacidad", "km", "km_gps", "odo_ini", "odo_fin", "paradas", "incidencias", "salida_lat", "salida_lng", "llegada_lat", "llegada_lng"], V.map(function (v) { return [v.id, new Date(v.salida_ts).toISOString().slice(0, 10), v.unidad_id, v.chofer, v.ruta_id, v.turno, fmtHora(v.salida_ts), fmtHora(v.llegada_ts), retrasoMin(v), v.pax_total, v.capacidad, kmViaje(v), v.km_gps, v.odo_ini, v.odo_fin, (v.paradas || []).map(function (p) { return p.nombre + ":" + p.pax; }).join(" | "), (v.incidencias || []).map(function (i) { return i.texto; }).join(" | "), v.salida_lat, v.salida_lng, v.llegada_lat, v.llegada_lng]; })); };
       document.getElementById("csvC").onclick = function () { descargarCSV("cargas", ["id", "fecha", "hora", "unidad", "chofer", "litros", "importe", "estacion", "odometro", "lat", "lng"], K.map(function (c) { return [c.id, new Date(c.ts).toISOString().slice(0, 10), fmtHora(c.ts), c.unidad_id, c.chofer, c.litros, c.importe, c.estacion, c.odo, c.lat, c.lng]; })); };
+      document.getElementById("csvS").onclick = function () { descargarCSV("viajes_extraordinarios", ["id", "registrada", "fecha_requerida", "hora_requerida", "destino", "personas", "requisitor", "area", "motivo", "estado", "unidad", "chofer"], SP.map(function (x) { return [x.id, new Date(x.creado_ts).toLocaleString("es-MX"), new Date(x.hora_req_ts).toLocaleDateString("es-MX"), fmtHora(x.hora_req_ts), x.destino, x.personas, x.requisitor, x.area, x.motivo, x.estado, x.unidad_id, x.chofer]; })); };
+      $app.querySelectorAll("[data-sol]").forEach(function (b) {
+        b.onclick = function () {
+          var x = sols.filter(function (y) { return y.id === b.dataset.sol; })[0]; if (!x) return;
+          var acc = b.dataset.acc;
+          if (acc === "asignar") {
+            var u = window.prompt("Unidad asignada (" + C.unidades.map(function (q) { return q.id; }).join(", ") + ")", C.unidades[0] ? C.unidades[0].id : ""); if (u == null || !u.trim()) return;
+            var ch = window.prompt("Chofer asignado (opcional)", ""); x.unidad_id = u.trim(); x.chofer = ch && ch.trim() ? ch.trim() : null; x.estado = "asignada";
+          } else if (acc === "cancelada") { if (!window.confirm("¿Cancelar esta solicitud?")) return; x.estado = "cancelada"; }
+          else x.estado = acc;
+          x.actualizado_ts = Date.now(); x.synced = false;
+          DB.put("solicitudes", x).then(function () { if (state.remoto) state.remoto = null; SYNC.push().then(render); });
+        };
+      });
       document.getElementById("imp").onchange = function (e) {
         var f = e.target.files[0]; if (!f) return; var rd = new FileReader();
-        rd.onload = function () { try { var d = JSON.parse(rd.result), n = 0; var ops = []; (d.viajes || []).forEach(function (v) { if (v && v.id) { ops.push(DB.put("viajes", v)); n++; } }); (d.cargas || []).forEach(function (c) { if (c && c.id) { ops.push(DB.put("cargas", c)); n++; } }); Promise.all(ops).then(function () { toast("Importados " + n + " registros"); render(); }); } catch (err) { toast("Archivo no válido", true); } };
+        rd.onload = function () { try { var d = JSON.parse(rd.result), n = 0; var ops = []; (d.viajes || []).forEach(function (v) { if (v && v.id) { ops.push(DB.put("viajes", v)); n++; } }); (d.cargas || []).forEach(function (c) { if (c && c.id) { ops.push(DB.put("cargas", c)); n++; } }); (d.solicitudes || []).forEach(function (x) { if (x && x.id) { ops.push(DB.put("solicitudes", x)); n++; } }); Promise.all(ops).then(function () { toast("Importados " + n + " registros"); render(); }); } catch (err) { toast("Archivo no válido", true); } };
         rd.readAsText(f);
       };
     });
