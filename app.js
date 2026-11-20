@@ -1,6 +1,6 @@
 /* Transporte de Personal · Astillero — prototipo PWA (chofer + supervisor) */
 (function () {
-  var C = window.CATALOGO, CFG = window.APP_CONFIG, $app = document.getElementById("app");
+  var C = JSON.parse(JSON.stringify(window.CATALOGO)), CFG = Object.assign({}, window.APP_CONFIG), $app = document.getElementById("app");
   var state = { view: null, viaje: null, prefs: null, watchId: null, lastPos: null, supervisorOk: false, periodo: "7", remoto: null };
 
   /* ---------- utilidades ---------- */
@@ -91,7 +91,7 @@
     if (state.viaje && (h === "inicio")) h = "viaje";
     if (!state.viaje && (h === "viaje" || h === "llegada")) h = "inicio";
     state.view = h;
-    var views = { inicio: vInicio, viaje: vViaje, llegada: vLlegada, combustible: vCombustible, solicitud: vSolicitud, historial: vHistorial, supervisor: vSupervisor };
+    var views = { inicio: vInicio, viaje: vViaje, llegada: vLlegada, combustible: vCombustible, solicitud: vSolicitud, historial: vHistorial, supervisor: vSupervisor, configuracion: vConfiguracion };
     (views[h] || vInicio)();
   }
   function navBar(cur) {
@@ -139,7 +139,7 @@
         var v = {
           id: DB.uid(), chofer_id: ch.id, chofer: ch.nombre, unidad_id: un.id, capacidad: un.capacidad, ruta_id: ru.id, ruta: ru.nombre, turno: sel,
           salida_ts: Date.now(), salida_lat: pos ? pos.lat : null, salida_lng: pos ? pos.lng : null, odo_ini: odo, foto_odo_ini: fotoId,
-          paradas: ru.paradas.map(function (n) { return { nombre: n, ts: null, pax: 0, lat: null, lng: null }; }),
+          paradas: ru.paradas.map(function (n) { var nom = typeof n === "string" ? n : n.nombre; return { nombre: nom, ts: null, pax: 0, lat: null, lng: null, hora_prog: typeof n === "string" ? null : (sel === "entrada" ? n.h_ent : n.h_sal) || null }; }),
           pax_total: 0, km_gps: 0, km_odo: null, incidencias: [], estado: "en_ruta", synced: false, dispositivo: dispositivo()
         };
         return guardarPrefs({ chofer_id: ch.id, chofer_nombre: ch.nombre, unidad_id: un.id, ruta_id: ru.id, turno: sel }).then(function () { return DB.put("viajes", v); }).then(function () { state.viaje = v; iniciarSeguimiento(); nav("viaje"); });
@@ -159,11 +159,11 @@
       '<span class="lbl">Paradas</span>';
     v.paradas.forEach(function (p, i) {
       if (i === idx) {
-        html += '<div class="card act"><div class="stop"><div class="dot act"></div><div class="t"><b>' + (i + 1) + '. ' + esc(p.nombre) + '</b><span>Ahora · ' + fmtHora(Date.now()) + '</span></div></div>' +
+        html += '<div class="card act"><div class="stop"><div class="dot act"></div><div class="t"><b>' + (i + 1) + '. ' + esc(p.nombre) + '</b><span>Ahora · ' + fmtHora(Date.now()) + (p.hora_prog ? ' · prog. ' + esc(p.hora_prog) : '') + '</span></div></div>' +
           '<div class="counter"><button class="btn sq" id="menos" aria-label="Quitar pasajero">−</button><div class="n" id="cnt">0</div><button class="btn sq pri" id="mas" aria-label="Agregar pasajero">+</button></div>' +
           '<button class="btn sel" style="width:100%" id="confirmar">Confirmar parada</button></div>';
       } else {
-        html += '<div class="card"><div class="stop"><div class="dot' + (p.ts ? " ok" : "") + '"></div><div class="t"><b>' + (i + 1) + '. ' + esc(p.nombre) + '</b><span>' + (p.ts ? fmtHora(p.ts) + " · " + p.pax + " pax" : "Pendiente") + '</span></div>' + (p.ts ? '<button class="link" data-edit="' + i + '">Editar</button>' : "") + '</div></div>';
+        html += '<div class="card"><div class="stop"><div class="dot' + (p.ts ? " ok" : "") + '"></div><div class="t"><b>' + (i + 1) + '. ' + esc(p.nombre) + '</b><span>' + (p.ts ? fmtHora(p.ts) + " · " + p.pax + " pax" : "Pendiente" + (p.hora_prog ? " · prog. " + esc(p.hora_prog) : "")) + '</span></div>' + (p.ts ? '<button class="link" data-edit="' + i + '">Editar</button>' : "") + '</div></div>';
       }
     });
     if (v.incidencias.length) html += '<div class="card warn"><h3>Incidencias</h3>' + v.incidencias.map(function (x) { return '<div class="small">' + fmtHora(x.ts) + " · " + esc(x.texto) + '</div>'; }).join("") + '</div>';
@@ -381,11 +381,13 @@
           (x.estado === "pendiente" || x.estado === "asignada" ? '<button class="link" data-sol="' + esc(x.id) + '" data-acc="atendida">Atendida</button> · <button class="link" data-sol="' + esc(x.id) + '" data-acc="cancelada">Cancelar</button>' : "—") +
           '</td><td>' + esc(x.requisitor) + (x.area ? '<div class="small">' + esc(x.area) + '</div>' : "") + '</td><td>' + esc(x.motivo || "—") + '</td><td>' + esc(x.unidad_id || "—") + (x.chofer ? '<div class="small">' + esc(x.chofer) + '</div>' : "") + '</td></tr>'; }).join("") : '<tr><td colspan="8" class="muted">Sin solicitudes en el periodo</td></tr>') + '</tbody></table></div></div>' +
         '<div class="card"><h3>Importar datos de otro celular (JSON)</h3><div class="small" style="margin-bottom:8px">Útil en modo local: el chofer comparte su archivo y aquí se consolida.</div><input type="file" accept="application/json,.json" id="imp" style="height:auto;padding:10px"></div>' +
+        '<div class="grp"><button class="btn pri" id="irConfig">Configuración (choferes, unidades, rutas, horarios)</button></div>' +
         '<button class="link" id="salir">Cerrar sesión de supervisor</button></div>';
       $app.innerHTML = html;
       $app.querySelectorAll("[data-nav]").forEach(function (b) { b.onclick = function () { nav(b.dataset.nav); }; });
       $app.querySelectorAll("[data-per]").forEach(function (b) { b.onclick = function () { state.periodo = b.dataset.per; render(); }; });
       document.getElementById("salir").onclick = function () { state.supervisorOk = false; nav("inicio"); };
+      document.getElementById("irConfig").onclick = function () { nav("configuracion"); };
       document.getElementById("csvV").onclick = function () { descargarCSV("viajes", ["id", "fecha", "unidad", "chofer", "ruta", "turno", "salida", "llegada", "retraso_min", "pasajeros", "capacidad", "km", "km_gps", "odo_ini", "odo_fin", "paradas", "incidencias", "salida_lat", "salida_lng", "llegada_lat", "llegada_lng"], V.map(function (v) { return [v.id, new Date(v.salida_ts).toISOString().slice(0, 10), v.unidad_id, v.chofer, v.ruta_id, v.turno, fmtHora(v.salida_ts), fmtHora(v.llegada_ts), retrasoMin(v), v.pax_total, v.capacidad, kmViaje(v), v.km_gps, v.odo_ini, v.odo_fin, (v.paradas || []).map(function (p) { return p.nombre + ":" + p.pax; }).join(" | "), (v.incidencias || []).map(function (i) { return i.texto; }).join(" | "), v.salida_lat, v.salida_lng, v.llegada_lat, v.llegada_lng]; })); };
       document.getElementById("csvC").onclick = function () { descargarCSV("cargas", ["id", "fecha", "hora", "unidad", "chofer", "litros", "importe", "estacion", "odometro", "lat", "lng"], K.map(function (c) { return [c.id, new Date(c.ts).toISOString().slice(0, 10), fmtHora(c.ts), c.unidad_id, c.chofer, c.litros, c.importe, c.estacion, c.odo, c.lat, c.lng]; })); };
       document.getElementById("csvS").onclick = function () { descargarCSV("viajes_extraordinarios", ["id", "registrada", "fecha_requerida", "hora_requerida", "destino", "personas", "requisitor", "area", "motivo", "estado", "unidad", "chofer"], SP.map(function (x) { return [x.id, new Date(x.creado_ts).toLocaleString("es-MX"), new Date(x.hora_req_ts).toLocaleDateString("es-MX"), fmtHora(x.hora_req_ts), x.destino, x.personas, x.requisitor, x.area, x.motivo, x.estado, x.unidad_id, x.chofer]; })); };
@@ -415,10 +417,157 @@
     var a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); a.download = nombre + "_" + new Date().toISOString().slice(0, 10) + ".csv"; a.click();
   }
 
+  /* ---------- CONFIGURACIÓN (cuestionario de arranque dentro de la app) ---------- */
+  function aplicarCatalogo(cat) {
+    if (!cat) return;
+    if (cat.choferes && cat.choferes.length) C.choferes = cat.choferes.map(function (c, i) { return { id: c.id || ("C" + (i + 1)), nombre: c.nombre || ("Chofer " + (i + 1)), telefono: c.telefono || "" }; });
+    if (cat.unidades && cat.unidades.length) C.unidades = cat.unidades.map(function (u, i) { var cap = parseInt(u.capacidad, 10) || 20; return { id: u.id || ("U-0" + (i + 1)), nombre: (u.id || ("U-0" + (i + 1))) + " · " + cap + " pax" + (u.descripcion ? " · " + u.descripcion : ""), capacidad: cap, descripcion: u.descripcion || "", odometro: u.odometro || null }; });
+    if (cat.rutas && cat.rutas.length) C.rutas = cat.rutas.map(function (r, i) { return { id: r.id || ("R" + (i + 1)), nombre: (r.id || ("R" + (i + 1))) + " · " + (r.nombre || "Ruta " + (i + 1)), origen: r.origen || "", paradas: (r.paradas || []).filter(function (p) { return p && p.nombre; }).map(function (p) { return { nombre: p.nombre, h_ent: p.h_ent || "", h_sal: p.h_sal || "" }; }) }; });
+    if (cat.estaciones && cat.estaciones.length) C.estaciones = cat.estaciones.filter(Boolean);
+  }
+  function aplicarAjustes(a) {
+    if (!a) return;
+    if (a.hora_meta_entrada) CFG.HORA_META_ENTRADA = a.hora_meta_entrada;
+    if (a.hora_meta_salida) CFG.HORA_META_SALIDA = a.hora_meta_salida;
+    if (a.tolerancia != null && a.tolerancia !== "") CFG.TOLERANCIA_MIN = parseInt(a.tolerancia, 10) || 0;
+    if (a.pin && /^\d{4}$/.test(a.pin)) CFG.PIN_SUPERVISOR = a.pin;
+  }
+  function borradorDesdeActual() {
+    return {
+      choferes: C.choferes.map(function (c) { return { id: c.id, nombre: c.nombre, telefono: c.telefono || "" }; }),
+      unidades: C.unidades.map(function (u) { return { id: u.id, descripcion: u.descripcion || "", capacidad: u.capacidad, odometro: u.odometro || "" }; }),
+      rutas: C.rutas.map(function (r) { return { id: r.id, nombre: r.nombre.replace(/^R\d+ · /, ""), origen: r.origen || "", paradas: r.paradas.map(function (p) { return typeof p === "string" ? { nombre: p, h_ent: "", h_sal: "" } : { nombre: p.nombre, h_ent: p.h_ent || "", h_sal: p.h_sal || "" }; }) }; }),
+      estaciones: C.estaciones.slice(),
+      ajustes: { hora_meta_entrada: CFG.HORA_META_ENTRADA, hora_meta_salida: CFG.HORA_META_SALIDA, tolerancia: CFG.TOLERANCIA_MIN, pin: "", dias: "", conteo: "parada", credencial: "no", dispositivo: "chofer", de_pie: "no", precio_litro: "", forma_pago: "", supervisor: "", supervisor_tel: "", reporte: "semanal", incidencias: "" }
+    };
+  }
+  function vConfiguracion() {
+    if (!state.supervisorOk) { nav("supervisor"); return; }
+    var pend = DB.get("config", "ajustes").then(function (a) {
+      if (!state.cfgDraft) { state.cfgDraft = borradorDesdeActual(); if (a && a.v) Object.assign(state.cfgDraft.ajustes, a.v, { pin: "" }); }
+    });
+    pend.then(function () {
+      var d = state.cfgDraft, sec = state.cfgSec || "choferes";
+      function inp(path, val, ph, type, extra) { return '<input data-p="' + path + '" type="' + (type || "text") + '" value="' + esc(val == null ? "" : val) + '" placeholder="' + esc(ph || "") + '" ' + (extra || "") + '>'; }
+      function selIn(path, val, opciones) { return '<select data-p="' + path + '">' + opciones.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === val ? " selected" : "") + '>' + o[1] + '</option>'; }).join("") + '</select>'; }
+      var tabs = [["choferes", "Choferes"], ["unidades", "Unidades"], ["rutas", "Rutas"], ["horarios", "Horarios"], ["reglas", "Reglas"]];
+      var html = hdr("Configuración", "Datos del piloto", "Lo que captures aquí es lo que usa la app", '<span class="badge gris">Supervisor</span>') + '<div class="main">' +
+        '<div class="tabs compact">' + tabs.map(function (t) { return '<button class="btn' + (sec === t[0] ? " sel" : "") + '" data-sec="' + t[0] + '">' + t[1] + '</button>'; }).join("") + '</div>';
+      if (sec === "choferes") {
+        html += '<div class="small">Un renglón por chofer. El celular Android es necesario para capturar viajes.</div>';
+        d.choferes.forEach(function (c, i) {
+          html += '<div class="card"><div class="grp"><div style="flex:2"><label>Nombre completo</label>' + inp("choferes." + i + ".nombre", c.nombre, "Nombre y apellidos") + '</div><div style="flex:1"><label>Clave</label>' + inp("choferes." + i + ".id", c.id, "C01") + '</div></div>' +
+            '<div class="grp" style="margin-top:8px;align-items:flex-end"><div style="flex:1"><label>Teléfono / WhatsApp</label>' + inp("choferes." + i + ".telefono", c.telefono, "10 dígitos", "tel") + '</div><button class="btn" data-del="choferes.' + i + '" aria-label="Quitar chofer">Quitar</button></div></div>';
+        });
+        html += '<button class="btn sel" data-add="choferes">+ Agregar chofer</button>';
+      }
+      if (sec === "unidades") {
+        html += '<div class="small">Capacidad = asientos para pasajeros. El odómetro actual arranca el control de kilómetros.</div>';
+        d.unidades.forEach(function (u, i) {
+          html += '<div class="card"><div class="grp"><div style="flex:1"><label>Clave</label>' + inp("unidades." + i + ".id", u.id, "U-01") + '</div><div style="flex:2"><label>Marca / modelo / placas</label>' + inp("unidades." + i + ".descripcion", u.descripcion, "Sprinter 2019 · ABC-123") + '</div></div>' +
+            '<div class="grp" style="margin-top:8px;align-items:flex-end"><div style="flex:1"><label>Capacidad (pax)</label>' + inp("unidades." + i + ".capacidad", u.capacidad, "20", "number", 'inputmode="numeric"') + '</div><div style="flex:1"><label>Odómetro actual (km)</label>' + inp("unidades." + i + ".odometro", u.odometro, "148320", "number", 'inputmode="numeric"') + '</div><button class="btn" data-del="unidades.' + i + '" aria-label="Quitar unidad">Quitar</button></div></div>';
+        });
+        html += '<button class="btn sel" data-add="unidades">+ Agregar unidad</button>';
+      }
+      if (sec === "rutas") {
+        html += '<div class="small">Hora programada = hora a la que la unidad debe estar en la parada (entrada y salida).</div>';
+        d.rutas.forEach(function (r, i) {
+          html += '<div class="card act"><div class="grp"><div style="flex:1"><label>Clave</label>' + inp("rutas." + i + ".id", r.id, "R1") + '</div><div style="flex:3"><label>Nombre de la ruta</label>' + inp("rutas." + i + ".nombre", r.nombre, "Centro → Astillero") + '</div></div>' +
+            '<div style="margin-top:8px"><label>Punto de partida (origen)</label>' + inp("rutas." + i + ".origen", r.origen, "Plaza principal") + '</div>' +
+            '<div class="lbl" style="margin-top:12px">Paradas en orden</div>';
+          r.paradas.forEach(function (p, j) {
+            html += '<div class="card" style="padding:10px;margin-bottom:8px"><div class="grp" style="align-items:flex-end"><div style="flex:1"><label>' + (j + 1) + '. Parada</label>' + inp("rutas." + i + ".paradas." + j + ".nombre", p.nombre, "Referencia clara") + '</div><button class="btn" style="padding:0 16px;flex:none" data-del="rutas.' + i + '.paradas.' + j + '" aria-label="Quitar parada">×</button></div><div class="grp" style="margin-top:8px"><div style="flex:1"><label>Hora prog. entrada</label>' + inp("rutas." + i + ".paradas." + j + ".h_ent", p.h_ent, "05:10", "time") + '</div><div style="flex:1"><label>Hora prog. salida</label>' + inp("rutas." + i + ".paradas." + j + ".h_sal", p.h_sal, "17:30", "time") + '</div></div></div>';
+          });
+          html += '<div class="grp"><button class="btn sel" data-add="rutas.' + i + '.paradas">+ Parada</button><button class="btn" data-del="rutas.' + i + '">Quitar ruta</button></div></div>';
+        });
+        html += '<button class="btn sel" data-add="rutas">+ Agregar ruta</button>';
+      }
+      if (sec === "horarios") {
+        var a = d.ajustes;
+        html += '<div class="small">Definen el indicador de puntualidad. Tolerancia = minutos de retraso que aún cuentan como "a tiempo".</div>' +
+          '<div class="card"><div class="grp"><div style="flex:1"><label>Hora meta llegada al astillero (entrada)</label>' + inp("ajustes.hora_meta_entrada", a.hora_meta_entrada, "05:50", "time") + '</div><div style="flex:1"><label>Hora meta salida (turno salida)</label>' + inp("ajustes.hora_meta_salida", a.hora_meta_salida, "17:20", "time") + '</div></div>' +
+          '<div class="grp" style="margin-top:8px"><div style="flex:1"><label>Tolerancia (min)</label>' + inp("ajustes.tolerancia", a.tolerancia, "5", "number", 'inputmode="numeric"') + '</div><div style="flex:2"><label>Días de operación</label>' + inp("ajustes.dias", a.dias, "L-V / L-S / turnos especiales") + '</div></div></div>' +
+          '<div class="card"><h3>Combustible</h3><div><label>Estaciones (separadas por coma)</label>' + inp("estaciones", d.estaciones.join(", "), "Estación convenio, Otra") + '</div>' +
+          '<div class="grp" style="margin-top:8px"><div style="flex:1"><label>Precio por litro (MXN)</label>' + inp("ajustes.precio_litro", a.precio_litro, "26.00", "number", 'inputmode="decimal" step="0.01"') + '</div><div style="flex:1"><label>Forma de pago</label>' + selIn("ajustes.forma_pago", a.forma_pago, [["", "—"], ["efectivo", "Efectivo"], ["vale", "Tarjeta de flotilla / vale"], ["credito", "Crédito con la estación"], ["otro", "Otro"]]) + '</div></div></div>';
+      }
+      if (sec === "reglas") {
+        var g = d.ajustes;
+        html += '<div class="card"><h3>Operación</h3>' +
+          '<div><label>Conteo de pasajeros</label>' + selIn("ajustes.conteo", g.conteo, [["parada", "Por parada (recomendado)"], ["total", "Total al final del viaje"]]) + '</div>' +
+          '<div style="margin-top:8px"><label>¿El personal tiene credencial con QR/código de barras?</label>' + selIn("ajustes.credencial", g.credencial, [["no", "No"], ["si", "Sí (podremos pasar lista)"], ["proceso", "En proceso"]]) + '</div>' +
+          '<div style="margin-top:8px"><label>Dispositivo de captura</label>' + selIn("ajustes.dispositivo", g.dispositivo, [["chofer", "Celular del chofer"], ["fijo", "Tablet/celular fijo por unidad"]]) + '</div>' +
+          '<div style="margin-top:8px"><label>¿Se permiten pasajeros de pie / sobre capacidad?</label>' + selIn("ajustes.de_pie", g.de_pie, [["no", "No, nunca"], ["si", "Sí, con límite"]]) + '</div>' +
+          '<div style="margin-top:8px"><label>Incidencias más frecuentes</label>' + inp("ajustes.incidencias", g.incidencias, "tráfico, fallas, retardos…") + '</div></div>' +
+          '<div class="card"><h3>Supervisión y accesos</h3>' +
+          '<div class="grp"><div style="flex:2"><label>Supervisor responsable</label>' + inp("ajustes.supervisor", g.supervisor, "Nombre") + '</div><div style="flex:1"><label>WhatsApp</label>' + inp("ajustes.supervisor_tel", g.supervisor_tel, "", "tel") + '</div></div>' +
+          '<div class="grp" style="margin-top:8px"><div style="flex:1"><label>Reporte deseado</label>' + selIn("ajustes.reporte", g.reporte, [["diario", "Diario"], ["semanal", "Semanal"], ["mensual", "Mensual"]]) + '</div><div style="flex:1"><label>Nuevo PIN (4 dígitos)</label>' + inp("ajustes.pin", g.pin, "dejar vacío = sin cambio", "password", 'inputmode="numeric" maxlength="4"') + '</div></div></div>';
+      }
+      html += '<div class="card"><div class="grp"><button class="btn" id="cfgCompartir">Compartir (JSON)</button><label class="btn" style="display:flex;align-items:center;justify-content:center;margin:0">Importar<input type="file" id="cfgImportar" accept="application/json,.json" style="display:none"></label></div><div class="small" style="margin-top:8px">Comparte el JSON por WhatsApp para que otro celular importe la misma configuración.</div></div>' +
+        '<button class="link" id="cfgReset">Restablecer datos de ejemplo</button>' +
+        '</div><div class="foot"><button class="btn" style="flex:1" id="cfgVolver">Dashboard</button><button class="btn ok" style="flex:2;font-size:17px;font-weight:700" id="cfgGuardar">Guardar configuración</button></div>';
+      $app.innerHTML = html;
+
+      function setPath(obj, path, val) { var ks = path.split("."), o = obj; for (var i = 0; i < ks.length - 1; i++) o = o[ks[i]]; o[ks[ks.length - 1]] = val; }
+      function getPath(obj, path) { return path.split(".").reduce(function (o, k) { return o[k]; }, obj); }
+      $app.querySelectorAll("[data-p]").forEach(function (el) {
+        el.oninput = el.onchange = function () { if (el.dataset.p === "estaciones") d.estaciones = el.value.split(",").map(function (x) { return x.trim(); }).filter(Boolean); else setPath(d, el.dataset.p, el.value); };
+      });
+      $app.querySelectorAll("[data-sec]").forEach(function (b) { b.onclick = function () { state.cfgSec = b.dataset.sec; render(); }; });
+      $app.querySelectorAll("[data-add]").forEach(function (b) {
+        b.onclick = function () {
+          var k = b.dataset.add, arr = getPath(d, k), n = arr.length + 1;
+          if (k === "choferes") arr.push({ id: "C" + (n < 10 ? "0" + n : n), nombre: "", telefono: "" });
+          else if (k === "unidades") arr.push({ id: "U-" + (n < 10 ? "0" + n : n), descripcion: "", capacidad: 20, odometro: "" });
+          else if (k === "rutas") arr.push({ id: "R" + n, nombre: "", origen: "", paradas: [{ nombre: "", h_ent: "", h_sal: "" }] });
+          else arr.push({ nombre: "", h_ent: "", h_sal: "" });
+          render();
+        };
+      });
+      $app.querySelectorAll("[data-del]").forEach(function (b) {
+        b.onclick = function () { var ks = b.dataset.del.split("."), idx = parseInt(ks.pop(), 10), arr = getPath(d, ks.join(".")); arr.splice(idx, 1); render(); };
+      });
+      document.getElementById("cfgVolver").onclick = function () { nav("supervisor"); };
+      document.getElementById("cfgReset").onclick = function () { if (!window.confirm("¿Volver a los datos de ejemplo? Se pierde lo capturado aquí.")) return; C = JSON.parse(JSON.stringify(window.CATALOGO)); CFG = Object.assign({}, window.APP_CONFIG); state.cfgDraft = null; Promise.all([DB.del("config", "catalogo"), DB.del("config", "ajustes")]).then(function () { toast("Datos de ejemplo restablecidos"); render(); }); };
+      document.getElementById("cfgGuardar").onclick = function () {
+        var errores = [];
+        var cat = {
+          choferes: d.choferes.filter(function (c) { return c.nombre && c.nombre.trim(); }),
+          unidades: d.unidades.filter(function (u) { return u.id && u.id.trim(); }),
+          rutas: d.rutas.filter(function (r) { return r.nombre && r.nombre.trim(); }).map(function (r) { return Object.assign({}, r, { paradas: r.paradas.filter(function (p) { return p.nombre && p.nombre.trim(); }) }); }),
+          estaciones: d.estaciones
+        };
+        if (!cat.choferes.length) errores.push("al menos 1 chofer con nombre");
+        if (!cat.unidades.length) errores.push("al menos 1 unidad");
+        if (!cat.rutas.length || cat.rutas.some(function (r) { return !r.paradas.length; })) errores.push("cada ruta con al menos 1 parada");
+        if (d.ajustes.pin && !/^\d{4}$/.test(d.ajustes.pin)) errores.push("PIN de 4 dígitos");
+        if (errores.length) { toast("Falta: " + errores.join(", "), true); return; }
+        var aj = Object.assign({}, d.ajustes); if (!aj.pin) delete aj.pin;
+        Promise.all([DB.put("config", { id: "catalogo", v: cat }), DB.put("config", { id: "ajustes", v: aj })]).then(function () {
+          aplicarCatalogo(cat); aplicarAjustes(aj); d.ajustes.pin = "";
+          toast("Configuración guardada: " + cat.choferes.length + " choferes, " + cat.unidades.length + " unidades, " + cat.rutas.length + " rutas");
+        });
+      };
+      document.getElementById("cfgCompartir").onclick = function () {
+        var copia = JSON.parse(JSON.stringify(d)); delete copia.ajustes.pin;
+        var blob = new Blob([JSON.stringify({ tipo: "configuracion_transporte", exportado: new Date().toISOString(), config: copia })], { type: "application/json" });
+        var name = "configuracion_transporte.json", file = new File([blob], name, { type: "application/json" });
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) navigator.share({ files: [file], title: "Configuración transporte" }).catch(function () {});
+        else { var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); }
+      };
+      document.getElementById("cfgImportar").onchange = function (e) {
+        var f = e.target.files[0]; if (!f) return; var rd = new FileReader();
+        rd.onload = function () { try { var j = JSON.parse(rd.result); if (!j.config || !j.config.choferes) throw new Error("x"); state.cfgDraft = j.config; state.cfgDraft.ajustes = Object.assign(borradorDesdeActual().ajustes, j.config.ajustes || {}, { pin: "" }); toast("Configuración importada. Revisa y guarda."); render(); } catch (err) { toast("Archivo no válido", true); } };
+        rd.readAsText(f);
+      };
+    });
+  }
+
   /* ---------- arranque ---------- */
   function init() {
-    Promise.all([DB.get("config", "prefs"), DB.all("viajes")]).then(function (r) {
+    Promise.all([DB.get("config", "prefs"), DB.all("viajes"), DB.get("config", "catalogo"), DB.get("config", "ajustes")]).then(function (r) {
       state.prefs = r[0] ? r[0].v : null;
+      if (r[2] && r[2].v) aplicarCatalogo(r[2].v);
+      if (r[3] && r[3].v) aplicarAjustes(r[3].v);
       state.viaje = r[1].filter(function (v) { return v.estado === "en_ruta"; }).sort(function (a, b) { return b.salida_ts - a.salida_ts; })[0] || null;
       if (state.viaje) iniciarSeguimiento();
       window.addEventListener("hashchange", render);

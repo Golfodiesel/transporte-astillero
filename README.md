@@ -42,6 +42,9 @@ Pestaña **Extra**. El requisitor captura:
 
 La solicitud queda **Pendiente**. En **Supervisor → Viajes extraordinarios** se ve primero lo pendiente, ordenado por hora, y se marca **Asignar** (unidad y chofer), **Atendida** o **Cancelar**. Se exporta a CSV. En modo local viaja en el JSON compartido; con Supabase se sincroniza (tabla `solicitudes` en `schema.sql`).
 
+## Configuración desde el celular (sin papel)
+Pestaña **Supervisor** → PIN → **Configuración**: choferes, unidades, rutas con paradas y horas programadas, horarios meta, combustible, reglas de operación y nuevo PIN. Lo guardado reemplaza a `catalogo.js`/`config.js` en ese teléfono; **Compartir (JSON)** permite copiar la misma configuración a otros celulares con **Importar**.
+
 ## Supervisor
 Pestaña **Supervisor** → PIN (`config.js`). Indicadores: puntualidad, ocupación, km, km/L, costo por pasajero; tablas y exportación a CSV (abre en Excel). En modo local puede importar los JSON que comparten los choferes.
 

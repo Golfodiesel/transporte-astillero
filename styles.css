@@ -50,6 +50,7 @@ input.big{height:52px;font-size:22px;font-weight:600}
 .tabs{display:flex;flex-wrap:wrap;gap:4px 6px;background:#E6EAF0;padding:4px;border-radius:10px}
 .tabs .btn{height:40px;border:none;background:transparent;flex:1 1 auto;padding:0 8px;font-size:14px}
 .tabs .btn.sel{background:#fff}
+.tabs.compact .btn{font-size:14px;padding:0 4px}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th,td{padding:8px 6px;border-bottom:1px solid #EEF1F4;text-align:left;white-space:nowrap}
 th{color:#4A5868;font-weight:600}
